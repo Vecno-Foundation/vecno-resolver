@@ -1,0 +1,74 @@
+[package]
+name = "vecno-resolver"
+description = "Vecno RPC endpoint resolver"
+version = "0.0.1"
+edition = "2021"
+# authors.workspace = true
+# include.workspace = true
+# license.workspace = true
+# repository.workspace = true
+
+[[bin]]
+name = "resolver"
+path = "src/main.rs"
+
+[dependencies]
+
+# workflow-core = { path = "../workflow-rs/core" }
+# workflow-http = { path = "../workflow-rs/http" }
+# workflow-log = { path = "../workflow-rs/log" }
+# workflow-serializer = { path = "../workflow-rs/serializer" }
+# workflow-rpc = { path = "../workflow-rs/rpc" }
+# workflow-encryption = { path = "../workflow-rs/encryption" }
+
+workflow-core = "0.18.0"
+workflow-http = "0.18.0"
+workflow-log = "0.18.0"
+workflow-serializer = "0.18.0"
+workflow-rpc = "0.18.0"
+workflow-encryption = "0.18.0"
+
+# vecno-consensus-core = { path = "../vecno-testnet/consensus/core" }
+# vecno-rpc-core = { path = "../vecno-testnet/rpc/core" }
+# vecno-utils = { path = "../vecno-testnet/utils" }
+# vecno-wrpc-client = { path = "../vecno-testnet/rpc/wrpc/client" }
+
+vecno-consensus-core = { git = "https://github.com/Vecno-Foundation/vecno-testnet.git"}
+vecno-rpc-core = { git = "https://github.com/Vecno-Foundation/vecno-testnet.git"}
+vecno-utils = { git = "https://github.com/Vecno-Foundation/vecno-testnet.git"}
+vecno-wrpc-client = { git = "https://github.com/Vecno-Foundation/vecno-testnet.git"}
+
+ahash = "0.8.6"
+arc-swap = "1.7.1"
+askama = "0.12.1"
+async-trait = "0.1.51"
+axum = "0.7.4"
+borsh = "1.5.1"
+cfg-if = "1.0.0"
+chrono = "0.4.38"
+clap = { version = "4.4.7", features = ["derive", "string", "cargo"] }
+cliclack = "0.3.2"
+console = "0.15.8"
+convert_case = "0.6.0"
+dirs = "5.0.1"
+enum_dispatch = "0.3.13"
+futures = { version = "0.3.29" }
+mime = "0.3.16"
+rand = "0.8.5"
+regex = "1.10.5"
+reqwest = "0.12.5"
+serde = { version = "1.0.190", features = ["derive", "rc"] }
+serde_json = "1.0.107"
+serde-hex = "0.1.0"
+thiserror = "1.0.50"
+tokio = { version = "1.33.0", features = ["sync", "rt-multi-thread"] }
+toml = "0.8.8"
+tower = { version = "0.4.13", features = ["buffer","limit"] }
+tower-http = { version = "0.5.1", features = ["cors"] }
+tracing-subscriber = "0.3.18"
+uuid = "1"
+xxhash-rust = { version = "0.8.7", features = ["xxh3"] }
+
+# argon2 = "0.5.2"
+# chacha20poly1305 = "0.10.1"
+# zeroize = { version = "1.6.0", default-features = false, features = ["alloc"] }

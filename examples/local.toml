@@ -1,0 +1,18 @@
+#
+# Example configuration for private node cluster
+# This file should be copied to ~/.vecno-resolver/cluster.toml
+# and edited to match the actual configuration of the cluster.
+#
+# For testing, run the resolver with the following command:
+# cargo run --release -- --trace --verbose --config-file=examples/local.toml --auto-update 
+#
+# To run under kHOST deployment, copy this file to `~/.vecno-resolver/local.toml`.
+# Existence of `~/.vecno-resolver/local.toml` will override any other configuration settings.
+#
+
+[[node]]
+service = "vecno"
+transport-type = "wrpc-borsh"
+tls = false
+network = "mainnet"
+fqdn = "127.0.0.1:8110"
