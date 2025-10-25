@@ -111,7 +111,4 @@ impl rpc::ClientT for Client {
         })
     }
 
-    fn trigger_abort(&self) -> Result<()> {
-        Ok(self.client.trigger_abort()?)
-    }
 }

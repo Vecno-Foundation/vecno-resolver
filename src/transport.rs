@@ -109,14 +109,6 @@ impl TransportKind {
 }
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
-pub struct TransportTemplate {
-    #[serde(rename = "type")]
-    pub kind: Vec<TransportKind>,
-    pub tls: bool,
-    pub template: String,
-}
-
-#[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Transport {
     #[serde(rename = "type")]
     pub kind: TransportKind,
