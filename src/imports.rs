@@ -51,5 +51,4 @@ pub use std::sync::atomic::{AtomicU64, Ordering};
 pub use std::sync::OnceLock;
 pub use std::sync::{Arc, Mutex, RwLock};
 pub use std::time::Duration;
-pub use std::time::Instant;
 pub use xxhash_rust::xxh3::xxh3_64;

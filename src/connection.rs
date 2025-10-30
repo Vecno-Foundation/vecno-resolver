@@ -1,10 +1,63 @@
+// src/connection.rs
 use crate::imports::*;
+use std::fmt;
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+use std::sync::Arc;
+use std::time::{SystemTime, UNIX_EPOCH};
+
+// workflow_core time utilities (for elapsed time only)
+use workflow_core::time::Instant;
+
+/// Returns a ready-to-print UTC timestamp like `2025-10-30T12:34:56.789Z`
+/// using only `std::time::SystemTime` (no chrono needed)
+fn timestamp() -> String {
+    let now = SystemTime::now();
+    let duration = now.duration_since(UNIX_EPOCH).expect("Time went backwards");
+    let secs = duration.as_secs();
+    let nanos = duration.subsec_nanos();
+
+    // Manual UTC formatting: YYYY-MM-DDTHH:MM:SS.mmmZ
+    let (year, month, day, hour, min, sec) = {
+        // Simple but accurate enough for logging (no leap seconds)
+        let days_since_epoch = secs / 86_400;
+        let secs_in_day = secs % 86_400;
+        let hour = secs_in_day / 3600;
+        let min = (secs_in_day % 3600) / 60;
+        let sec = secs_in_day % 60;
+
+        // Approximate Gregorian calendar (good for 2020–2100)
+        let mut y = 1970;
+        let mut d = days_since_epoch as i64;
+        while d >= 365 { 
+            if (y % 4 == 0 && y % 100 != 0) || y % 400 == 0 { d -= 366; } else { d -= 365; }
+            y += 1;
+        }
+        let mut m = 1;
+        let day;
+        loop {
+            let days_in_month = match m {
+                4 | 6 | 9 | 11 => 30,
+                2 => if (y % 4 == 0 && y % 100 != 0) || y % 400 == 0 { 29 } else { 28 },
+                _ => 31,
+            };
+            if d < days_in_month as i64 { day = d as u32 + 1; break; }
+            d -= days_in_month as i64;
+            m += 1;
+        }
+        (y, m, day, hour as u32, min as u32, sec as u32)
+    };
+
+    format!(
+        "{:04}-{:02}-{:02}T{:02}:{:02}:{:02}.{:03}Z",
+        year, month, day, hour, min, sec, nanos / 1_000_000
+    )
+}
 
 impl fmt::Display for Connection {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         let load = self
             .load()
-            .map(|load| format!("{:1.2}%", load))
+            .map(|load| format!("{:1.2}%", load * 100.0))
             .unwrap_or_else(|| "n/a  ".to_string());
         write!(
             f,
@@ -75,23 +128,12 @@ impl Connection {
         })
     }
 
-    #[inline]
-    pub fn verbose(&self) -> bool {
-        self.args.verbose
-    }
+    #[inline] pub fn verbose(&self) -> bool { self.args.verbose }
+    #[inline] pub fn score(self: &Arc<Self>) -> u64 { self.delegate().sockets() }
 
-    /// Represents the connection score, which is currently
-    /// the number of sockets (clients + peers) the node has.
-    #[inline]
-    pub fn score(self: &Arc<Self>) -> u64 {
-        self.delegate().sockets()
-    }
-
-    /// Connection availability state.
     #[inline]
     pub fn is_available(self: &Arc<Self>) -> bool {
         let delegate = self.delegate();
-
         self.is_connected()
             && delegate.is_online()
             && delegate.caps.load().as_ref().as_ref().is_some_and(|caps| {
@@ -101,125 +143,48 @@ impl Connection {
             })
     }
 
-    /// Indicates if the connection RPC is connected.
-    #[inline]
-    pub fn is_connected(&self) -> bool {
-        self.is_connected.load(Ordering::Relaxed)
-    }
+    #[inline] pub fn is_connected(&self) -> bool { self.is_connected.load(Ordering::Relaxed) }
+    #[inline] pub fn is_online(&self) -> bool { self.is_online.load(Ordering::Relaxed) }
+    #[inline] pub fn is_synced(&self) -> bool { self.is_synced.load(Ordering::Relaxed) }
+    #[inline] pub fn clients(&self) -> u64 { self.clients.load(Ordering::Relaxed) }
+    #[inline] pub fn peers(&self) -> u64 { self.peers.load(Ordering::Relaxed) }
+    #[inline] pub fn sockets(&self) -> u64 { self.clients() + self.peers() }
 
-    /// Indicates if the connection is available as a general
-    /// concept: no errors have occurred during RPC calls
-    /// and the node is in synced synced.
-    #[inline]
-    pub fn is_online(&self) -> bool {
-        self.is_online.load(Ordering::Relaxed)
-    }
-
-    /// Indicates if the node is in synced state.
-    #[inline]
-    pub fn is_synced(&self) -> bool {
-        self.is_synced.load(Ordering::Relaxed)
-    }
-
-    /// Number of RPC clients connected to the node.
-    #[inline]
-    pub fn clients(&self) -> u64 {
-        self.clients.load(Ordering::Relaxed)
-    }
-
-    /// Number of p2p peers connected to the node.
-    #[inline]
-    pub fn peers(&self) -> u64 {
-        self.peers.load(Ordering::Relaxed)
-    }
-
-    /// Total number of TCP sockets connected to the node.
-    #[inline]
-    pub fn sockets(&self) -> u64 {
-        self.clients() + self.peers()
-    }
-
-    /// Connection load as a ratio of clients to capacity.
     pub fn load(&self) -> Option<f64> {
-        self.caps
-            .load()
-            .as_ref()
-            .map(|caps| self.clients() as f64 / caps.capacity as f64)
+        self.caps.load().as_ref().map(|caps| self.clients() as f64 / caps.capacity as f64)
     }
 
-    /// Node capabilities (partial system spec, see [`Caps`])
-    #[inline]
-    pub fn caps(&self) -> Option<Arc<Caps>> {
-        self.caps.load().clone()
+    #[inline] pub fn caps(&self) -> Option<Arc<Caps>> { self.caps.load().clone() }
+    #[inline] pub fn system_id(&self) -> u64 {
+        self.caps.load().as_ref().map(|c| c.system_id).unwrap_or_default()
     }
+    #[inline] pub fn address(&self) -> &str { self.node.address.as_str() }
+    #[inline] pub fn node(&self) -> &Arc<Node> { &self.node }
+    #[inline] pub fn params(&self) -> PathParams { self.params }
+    #[inline] pub fn network_id(&self) -> NetworkId { self.node.network }
+    #[inline] pub fn is_delegate(&self) -> bool { self.delegate.load().is_none() }
 
-    /// Unique system (machine) identifier of the node.
-    #[inline]
-    pub fn system_id(&self) -> u64 {
-        self.caps
-            .load()
-            .as_ref()
-            .map(|caps| caps.system_id)
-            .unwrap_or_default()
-    }
-
-    /// Connection address (URL).
-    #[inline]
-    pub fn address(&self) -> &str {
-        self.node.address.as_str()
-    }
-
-    /// Node configuration parameters used to create this connection.
-    #[inline]
-    pub fn node(&self) -> &Arc<Node> {
-        &self.node
-    }
-
-    /// Connection parameters used to create this connection.
-    #[inline]
-    pub fn params(&self) -> PathParams {
-        self.params
-    }
-
-    /// Network id of the node.
-    #[inline]
-    pub fn network_id(&self) -> NetworkId {
-        self.node.network
-    }
-
-    /// Indicates if the connection is a delegate.
-    #[inline]
-    pub fn is_delegate(&self) -> bool {
-        self.delegate.load().is_none()
-    }
-
-    /// Get the delegate of this connection.
     #[inline]
     pub fn delegate(self: &Arc<Self>) -> Arc<Connection> {
         match (**self.delegate.load()).clone() {
-            Some(delegate) => delegate.delegate(),
+            Some(d) => d.delegate(),
             None => self.clone(),
         }
     }
 
-    /// Associate a delegate to this connection. A delegate is a primary
-    /// connection to the node that does actual performance monitoring
-    /// while non-delegate connections remain idle in a keep-alive state.
     #[inline]
     pub fn bind_delegate(&self, delegate: Option<Arc<Connection>>) {
         self.delegate.store(Arc::new(delegate));
     }
 
-    /// Creates a list of delegators for this connection, where the last
-    /// entry is the delegate.
     pub fn resolve_delegators(self: &Arc<Self>) -> Vec<Arc<Connection>> {
-        let mut delegates = Vec::new();
-        let mut delegate = (*self).clone();
-        while let Some(next) = (**delegate.delegate.load()).clone() {
-            delegates.push(next.clone());
-            delegate = next;
+        let mut list = Vec::new();
+        let mut current = (*self).clone();
+        while let Some(next) = (**current.delegate.load()).clone() {
+            list.push(next.clone());
+            current = next;
         }
-        delegates
+        list
     }
 
     pub fn status(&self) -> &'static str {
@@ -241,14 +206,32 @@ impl Connection {
         Ok(())
     }
 
-    async fn task(self: Arc<Self>) -> Result<()> {
+    /// Hybrid reset: graceful disconnect to trigger_abort fallback
+    async fn hard_reset(&self) -> Result<()> {
+        if self.is_connected.load(Ordering::Relaxed) {
+            match self.client.disconnect().await {
+                Ok(()) => {
+                    let ts = timestamp();
+                    log_info!("Reset", "[{ts}] graceful disconnect");
+                }
+                Err(_) => {
+                    let ts = timestamp();
+                    log_warn!("Reset", "[{ts}] graceful failed to hard abort");
+                    let _ = self.client.trigger_abort();
+                }
+            }
+        }
+        self.caps.store(None);
+        self.client.connect().await
+    }
+
+    pub async fn task(self: Arc<Self>) -> Result<()> {
         self.connect().await?;
         let rpc_ctl_channel = self.client.multiplexer().channel();
         let shutdown_ctl_receiver = self.shutdown_ctl.request.receiver.clone();
         let shutdown_ctl_sender = self.shutdown_ctl.response.sender.clone();
 
         let mut ttl = TtlSettings::ttl();
-        // TODO - delegate state changes inside `update_state()`!
         let mut poll = if self.is_delegate() {
             interval(SyncSettings::poll())
         } else {
@@ -257,41 +240,30 @@ impl Connection {
 
         let mut last_connect_time: Option<Instant> = None;
 
-        // use futures::StreamExt;
         loop {
             select! {
-
                 _ = poll.next().fuse() => {
-
                     if TtlSettings::enable() {
                         if let Some(t) = last_connect_time {
                             if t.elapsed() > ttl {
-                                // println!("-- t.elapsed(): {}", t.elapsed().as_millis());
                                 last_connect_time = None;
-                                // TODO reset caps ON ALL DELEGATES?
-                                self.caps.store(None);
-                                if self.is_connected.load(Ordering::Relaxed) {
-                                    // log_info!("TTL","ttl disconnecting {}", self.node.address);
-                                    self.client.disconnect().await.ok();
-                                    // log_info!("TTL","Connecting {}", self.node.address);
-                                    self.client.connect().await.ok();
-                                }
+                                let _ = self.hard_reset().await;
                                 continue;
                             }
                         }
                     }
 
                     if self.is_connected.load(Ordering::Relaxed) {
-                        let previous = self.is_online.load(Ordering::Relaxed);
-                        let online = self.update_state().await.is_ok();
-                        self.is_online.store(online, Ordering::Relaxed);
-                        if online != previous {
-                            if self.verbose() {
-                                if online {
-                                    log_success!("Online","{}", self.node.address);
-                                } else {
-                                    log_error!("Offline","{}", self.node.address);
-                                }
+                        let was_online = self.is_online.load(Ordering::Relaxed);
+                        let is_online = self.update_state().await.is_ok();
+                        self.is_online.store(is_online, Ordering::Relaxed);
+
+                        if is_online != was_online {
+                            let ts = timestamp();
+                            if is_online {
+                                log_success!("Online", "[{ts}] {}", self.node.address);
+                            } else {
+                                log_error!("Offline", "[{ts}] {}", self.node.address);
                             }
                             self.update();
                         }
@@ -300,158 +272,149 @@ impl Connection {
 
                 msg = rpc_ctl_channel.receiver.recv().fuse() => {
                     match msg {
-                        Ok(msg) => {
+                        Ok(Ctl::Connect) => {
+                            last_connect_time = Some(Instant::now());
+                            ttl = TtlSettings::ttl();
+                            let ts = timestamp();
 
-                            // handle wRPC channel connection and disconnection events
-                            match msg {
-                                Ctl::Connect => {
-                                    last_connect_time = Some(Instant::now());
-                                    ttl = TtlSettings::ttl();
-                                    if self.args.verbose {
-                                        log_info!("Connected","{} - ttl: {:1.2}",self.node.address,ttl.as_secs() as f64 / 60.0 / 60.0);
-                                    } else {
-                                        log_success!("Connected","{}",self.node.address);
-                                    }
-                                    self.is_connected.store(true, Ordering::Relaxed);
-                                    // trigger caps reset
-                                    // TODO: disabling for now - this may cause cyclic references
-                                    // self.caps.store(None);
-                                    // update state
-
-                                    if self.caps().is_some() {
-                                        // trigger version update
-                                        let _ = self.update_caps().await;
-                                    }
-
-                                    if self.update_state().await.is_ok() {
-                                        self.is_online.store(true, Ordering::Relaxed);
-                                        self.update();
-                                    } else {
-                                        self.is_online.store(false, Ordering::Relaxed);
-                                    }
-                                },
-                                Ctl::Disconnect => {
-                                    self.is_connected.store(false, Ordering::Relaxed);
-                                    self.is_online.store(false, Ordering::Relaxed);
-                                    last_connect_time = None;
-                                    self.update();
-                                    log_error!("Disconnected","{}",self.node.address);
-                                }
+                            if self.args.verbose {
+                                log_info!(
+                                    "Connected",
+                                    "[{ts}] {} - ttl: {:.2}h",
+                                    self.node.address,
+                                    ttl.as_secs_f64() / 3600.0
+                                );
+                            } else {
+                                log_success!("Connected", "[{ts}] {}", self.node.address);
                             }
+
+                            self.is_connected.store(true, Ordering::Relaxed);
+
+                            if self.caps().is_some() {
+                                let _ = self.update_caps().await;
+                            }
+
+                            if self.update_state().await.is_ok() {
+                                self.is_online.store(true, Ordering::Relaxed);
+                            } else {
+                                self.is_online.store(false, Ordering::Relaxed);
+                            }
+                            self.update();
                         }
+
+                        Ok(Ctl::Disconnect) => {
+                            self.is_connected.store(false, Ordering::Relaxed);
+                            self.is_online.store(false, Ordering::Relaxed);
+                            last_connect_time = None;
+                            self.update();
+                            let ts = timestamp();
+                            log_error!("Disconnected", "[{ts}] {}", self.node.address);
+                        }
+
                         Err(err) => {
-                            println!("Monitor: error while receiving rpc_ctl_channel message: {err}");
+                            let ts = timestamp();
+                            log_error!("Monitor", "[{ts}] rpc_ctl_channel error: {err}");
                             break;
                         }
                     }
                 }
 
-                _ = shutdown_ctl_receiver.recv().fuse() => {
-                    break;
-                },
-
+                _ = shutdown_ctl_receiver.recv().fuse() => break,
             }
         }
 
         shutdown_ctl_sender.send(()).await.unwrap();
-
         Ok(())
     }
 
     pub fn start(self: &Arc<Self>) -> Result<()> {
         let this = self.clone();
         spawn(async move {
-            if let Err(error) = this.task().await {
-                println!("NodeConnection task error: {:?}", error);
+            if let Err(e) = this.task().await {
+                let ts = timestamp();
+                log_error!("Task", "[{ts}] NodeConnection error: {:?}", e);
             }
         });
-
         Ok(())
     }
 
     pub async fn stop(self: &Arc<Self>) -> Result<()> {
-        self.shutdown_ctl
-            .signal(())
-            .await
-            .expect("NodeConnection shutdown signal error");
+        self.shutdown_ctl.signal(()).await.expect("shutdown signal failed");
         Ok(())
     }
 
     async fn update_caps(self: &Arc<Self>) -> Result<()> {
-        if let Some(prev_caps) = self.caps().as_ref() {
-            let new_caps = self.client.get_caps().await?;
-            let caps = Caps::with_version(prev_caps, new_caps.version);
+        if let Some(prev) = self.caps().as_ref() {
+            let new = self.client.get_caps().await?;
+            let caps = Caps::with_version(prev, new.version);
             self.caps.store(Some(Arc::new(caps)));
         }
-
         Ok(())
     }
 
     async fn update_state(self: &Arc<Self>) -> Result<()> {
         if !self.is_delegate() {
-            if let Err(err) = self.client.ping().await {
-                log_error!("Ping", "{err}");
-            }
+            let _ = self.client.ping().await;
             return Ok(());
         }
 
         if self.caps().is_none() {
-            let last_system_id = self.caps().as_ref().map(|caps| caps.system_id());
+            let last_id = self.caps().as_ref().map(|c| c.system_id());
             let caps = self.client.get_caps().await?;
-            let system_id = caps.system_id();
+            let sys_id = caps.system_id();
             self.caps.store(Some(Arc::new(caps)));
 
-            if last_system_id != Some(system_id) {
-                let delegate_key = Delegate::new(system_id, self.network_id());
-                let mut delegates = self.monitor.delegates().write().unwrap();
-                if let Some(delegate) = delegates.get(&delegate_key) {
-                    self.bind_delegate(Some(delegate.clone()));
+            if last_id != Some(sys_id) {
+                let key = Delegate::new(sys_id, self.network_id());
+                let mut map = self.monitor.delegates().write().unwrap();
+                if let Some(existing) = map.get(&key) {
+                    self.bind_delegate(Some(existing.clone()));
                 } else {
-                    delegates.insert(delegate_key, self.clone());
+                    map.insert(key, self.clone());
                     self.bind_delegate(None);
                 }
             }
         }
 
         match self.client.get_sync().await {
-            Ok(is_synced) => {
-                let previous_sync = self.is_synced.load(Ordering::Relaxed);
-                self.is_synced.store(is_synced, Ordering::Relaxed);
+            Ok(sync) => {
+                let was_sync = self.is_synced.load(Ordering::Relaxed);
+                self.is_synced.store(sync, Ordering::Relaxed);
 
-                if is_synced {
+                if sync {
                     match self.client.get_active_connections().await {
                         Ok(Connections { clients, peers }) => {
-                            if self.verbose() {
-                                let prev_clients = self.clients.load(Ordering::Relaxed);
-                                let prev_peers = self.peers.load(Ordering::Relaxed);
-                                if clients != prev_clients || peers != prev_peers {
-                                    self.clients.store(clients, Ordering::Relaxed);
-                                    self.peers.store(peers, Ordering::Relaxed);
-                                    log_success!("Clients", "{self}");
-                                }
-                            } else {
-                                self.clients.store(clients, Ordering::Relaxed);
-                                self.peers.store(peers, Ordering::Relaxed);
-                            }
+                            let pc = self.clients.load(Ordering::Relaxed);
+                            let pp = self.peers.load(Ordering::Relaxed);
 
+                            self.clients.store(clients, Ordering::Relaxed);
+                            self.peers.store(peers, Ordering::Relaxed);
+
+                            if self.verbose() && (clients != pc || peers != pp) {
+                                let ts = timestamp();
+                                log_success!("Clients", "[{ts}] {self}");
+                            }
                             Ok(())
                         }
-                        Err(err) => {
-                            log_error!("RPC", "{self}");
-                            log_error!("Error", "{err}");
+                        Err(e) => {
+                            let ts = timestamp();
+                            log_error!("RPC", "[{ts}] {self}");
+                            log_error!("Error", "[{ts}] {e}");
                             Err(Error::Metrics)
                         }
                     }
                 } else {
-                    if is_synced != previous_sync {
-                        log_error!("Sync", "{self}");
+                    if sync != was_sync {
+                        let ts = timestamp();
+                        log_error!("Sync", "[{ts}] {self}");
                     }
                     Err(Error::Sync)
                 }
             }
-            Err(err) => {
-                log_error!("RPC", "{self}");
-                log_error!("Error", "{err}");
+            Err(e) => {
+                let ts = timestamp();
+                log_error!("RPC", "[{ts}] {self}");
+                log_error!("Error", "[{ts}] {e}");
                 Err(Error::Status)
             }
         }
@@ -471,10 +434,10 @@ pub struct Output<'a> {
 }
 
 impl<'a> From<&'a Arc<Connection>> for Output<'a> {
-    fn from(connection: &'a Arc<Connection>) -> Self {
+    fn from(conn: &'a Arc<Connection>) -> Self {
         Self {
-            uid: connection.node.uid_as_str(),
-            url: connection.node.address(),
+            uid: conn.node.uid_as_str(),
+            url: conn.node.address(),
         }
     }
 }

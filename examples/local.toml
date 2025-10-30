@@ -23,11 +23,3 @@ transport-type = "wrpc-borsh"
 tls = true
 network = "mainnet"
 fqdn = "wallet2.vecnoscan.org"
-
-[[node]]
-service = "vecno"
-transport-type = "wrpc-borsh"
-tls = true
-network = "mainnet"
-fqdn = "wallet3.vecnoscan.org"
-
