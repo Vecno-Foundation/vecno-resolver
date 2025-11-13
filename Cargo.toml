@@ -28,15 +28,15 @@ workflow-serializer = "0.18.0"
 workflow-rpc = "0.18.0"
 workflow-encryption = "0.18.0"
 
-# vecno-consensus-core = { path = "../vecno-testnet/consensus/core" }
-# vecno-rpc-core = { path = "../vecno-testnet/rpc/core" }
-# vecno-utils = { path = "../vecno-testnet/utils" }
-# vecno-wrpc-client = { path = "../vecno-testnet/rpc/wrpc/client" }
+# vecno-consensus-core = { path = "../vecnod/consensus/core" }
+# vecno-rpc-core = { path = "../vecnod/rpc/core" }
+# vecno-utils = { path = "../vecnod/utils" }
+# vecno-wrpc-client = { path = "../vecnod/rpc/wrpc/client" }
 
-vecno-consensus-core = { git = "https://github.com/Vecno-Foundation/vecno-testnet.git"}
-vecno-rpc-core = { git = "https://github.com/Vecno-Foundation/vecno-testnet.git"}
-vecno-utils = { git = "https://github.com/Vecno-Foundation/vecno-testnet.git"}
-vecno-wrpc-client = { git = "https://github.com/Vecno-Foundation/vecno-testnet.git"}
+vecno-consensus-core = { git = "https://github.com/Vecno-Foundation/vecnod.git"}
+vecno-rpc-core = { git = "https://github.com/Vecno-Foundation/vecnod.git"}
+vecno-utils = { git = "https://github.com/Vecno-Foundation/vecnod.git"}
+vecno-wrpc-client = { git = "https://github.com/Vecno-Foundation/vecnod.git"}
 
 ahash = "0.8.6"
 arc-swap = "1.7.1"

@@ -4,8 +4,7 @@ document.addEventListener('DOMContentLoaded', () => {
         nodes : [],
         networks : {
             "mainnet": true,
-            // "testnet-10": true,
-            // "testnet-11": true,
+            // "testnet": true,
         },
     };
 
